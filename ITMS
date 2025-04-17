@@ -1,0 +1,704 @@
+import csv
+from datetime import datetime, timedelta
+
+def display_as_table(data, headers):
+    """Display data in table format using basic string formatting"""
+    if not data:
+        print("No data available")
+        return
+    
+    # Calculate column widths
+    col_widths = []
+    for i, header in enumerate(headers):
+        max_width = len(header)
+        for row in data:
+            if isinstance(row, dict):
+                value = str(row.get(header, ""))
+            else:
+                value = str(row[i])
+            max_width = max(max_width, len(value))
+        col_widths.append(max_width)
+    
+    # Create row format string
+    row_format = " | ".join([f"{{:<{w}}}" for w in col_widths])
+    
+    # Print header
+    print(row_format.format(*headers))
+    print("-" * (sum(col_widths) + 3 * (len(headers) - 1)))  # Divider line
+    
+    # Print rows
+    for row in data:
+        if isinstance(row, dict):
+            values = [str(row.get(h, "")) for h in headers]
+        else:
+            values = [str(x) for x in row]
+        print(row_format.format(*values))
+
+def count_visits(tourist_id, visits):
+    """Count number of visits for a specific tourist"""
+    return sum(1 for visit in visits if visit["Tourist ID"] == tourist_id)
+
+def certify_tourist(tourist, visit_count):
+    """Certify tourist based on number of sites visited"""
+    if visit_count >= 5:
+        return "Gold Explorer"
+    elif visit_count >= 3:
+        return "Silver Explorer"
+    elif visit_count >= 1:
+        return "Bronze Explorer"
+    else:
+        return "Not Certified"
+
+def validate_date(date_str):
+    """Validate date format (YYYY-MM-DD)"""
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+def validate_coordinate(coord_str, coord_type):
+    """Validate latitude or longitude coordinate"""
+    try:
+        coord = float(coord_str)
+        if coord_type == "latitude":
+            return -90 <= coord <= 90
+        else:  # longitude
+            return -180 <= coord <= 180
+    except ValueError:
+        return False
+
+def calculate_stay_duration(check_in, check_out):
+    """Calculate number of days between two dates"""
+    date_format = "%Y-%m-%d"
+    d1 = datetime.strptime(check_in, date_format)
+    d2 = datetime.strptime(check_out, date_format)
+    return (d2 - d1).days
+
+def calculate_total_price(price_per_night, nights, room_type):
+    """Calculate total price based on room type and duration"""
+    try:
+        price = float(price_per_night)
+        if room_type.lower() == "suite":
+            price *= 1.5
+        elif room_type.lower() == "double":
+            price *= 1.2
+        return round(price * nights, 2)
+    except ValueError:
+        return 0.0
+
+def get_valid_input(prompt, validation_func=None, error_message="Invalid input"):
+    """Get validated user input"""
+    while True:
+        user_input = input(prompt).strip()
+        if not validation_func or validation_func(user_input):
+            return user_input
+        print(f"❌ {error_message}")
+
+def select_from_table(items, display_headers, prompt):
+    """Select an item from a displayed table"""
+    display_as_table(items, display_headers)
+    while True:
+        try:
+            selected_id = int(input(prompt))
+            if 1 <= selected_id <= len(items):
+                return items[selected_id - 1]
+            print("❌ Invalid selection. Please enter a valid ID.")
+        except ValueError:
+            print("❌ Please enter a numeric ID.")
+
+def process_payment(tourist_name, site_name, amount):
+    """Process payment for a tourist site visit"""
+    print(f"\n💳 Processing payment for {tourist_name} at {site_name}")
+    print(f"Amount due: ${amount:.2f}")
+    
+    while True:
+        payment_method = input("Payment method (cash/card): ").lower()
+        if payment_method in ["cash", "card"]:
+            break
+        print("❌ Invalid payment method. Please enter 'cash' or 'card'")
+    
+    if payment_method == "card":
+        card_number = get_valid_input("Enter card number (16 digits): ",
+                                   lambda x: x.isdigit() and len(x) == 16,
+                                   "Invalid card number (must be 16 digits)")
+        expiry = get_valid_input("Enter expiry date (MM/YY): ",
+                               lambda x: len(x) == 5 and x[2] == '/' and x[:2].isdigit() and x[3:].isdigit(),
+                               "Invalid expiry date (use MM/YY format)")
+        cvv = get_valid_input("Enter CVV (3 digits): ",
+                             lambda x: x.isdigit() and len(x) == 3,
+                             "Invalid CVV (must be 3 digits)")
+    
+    payment_confirmation = {
+        "Tourist": tourist_name,
+        "Site": site_name,
+        "Amount": amount,
+        "Method": payment_method,
+        "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Status": "Paid"
+    }
+    
+    print(f"\n✅ Payment processed successfully!")
+    print(f"🔖 Receipt for {tourist_name}")
+    print(f"📍 Site: {site_name}")
+    print(f"💰 Amount: ${amount:.2f}")
+    print(f"💳 Method: {payment_method}")
+    print(f"📅 Date: {payment_confirmation['Date']}")
+    
+    return payment_confirmation
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Calculate approximate distance between two coordinates in kilometers"""
+    from math import radians, sin, cos, sqrt, atan2
+    R = 6371.0  # Earth radius in km
+    
+    lat1 = radians(float(lat1))
+    lon1 = radians(float(lon1))
+    lat2 = radians(float(lat2))
+    lon2 = radians(float(lon2))
+    
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    
+    return R * c
+
+def find_nearby_hotels(site, hotels, max_distance=50):
+    """Find hotels within a certain distance of a tourist site"""
+    site_lat = site.get("Latitude")
+    site_lon = site.get("Longitude")
+    
+    if not site_lat or not site_lon:
+        return []
+    
+    nearby_hotels = []
+    for hotel in hotels:
+        hotel_lat = hotel.get("Latitude")
+        hotel_lon = hotel.get("Longitude")
+        
+        if hotel_lat and hotel_lon:
+            distance = calculate_distance(site_lat, site_lon, hotel_lat, hotel_lon)
+            if distance <= max_distance:
+                hotel_copy = hotel.copy()
+                hotel_copy["Distance (km)"] = round(distance, 1)
+                nearby_hotels.append(hotel_copy)
+    
+    return sorted(nearby_hotels, key=lambda x: x["Distance (km)"])
+
+def main():
+    tourists = []
+    tourist_sites = []
+    visits = []
+    hotels = []
+    bookings = []
+    payments = []
+    
+    # Sample initial data with geolocation and images
+    if not hotels:
+        hotels.extend([
+            {"ID": 1, "Name": "Grand Ethiopia Hotel", "Location": "Addis Ababa", 
+             "Rating": 5, "Base Price": 150, "Total Rooms": 50, "Amenities": "Pool,Spa,Restaurant",
+             "Room Types": "Single,Double,Suite", "Contact": "+251111111111", "Email": "grand@example.com",
+             "Latitude": "9.005401", "Longitude": "38.763611", "Image": "images/grand_hotel.jpg"},
+            {"ID": 2, "Name": "Blue Nile Resort", "Location": "Bahir Dar", 
+             "Rating": 4, "Base Price": 100, "Total Rooms": 30, "Amenities": "Lake View,Restaurant",
+             "Room Types": "Single,Double", "Contact": "+251222222222", "Email": "bluenile@example.com",
+             "Latitude": "11.6000", "Longitude": "37.3833", "Image": "images/bluenile_resort.jpg"},
+            {"ID": 3, "Name": "Lalibela Lodge", "Location": "Lalibela", 
+             "Rating": 3, "Base Price": 75, "Total Rooms": 20, "Amenities": "Mountain View",
+             "Room Types": "Single,Double", "Contact": "+251333333333", "Email": "lalibela@example.com",
+             "Latitude": "12.0300", "Longitude": "39.0476", "Image": "images/lalibela_lodge.jpg"}
+        ])
+    
+    if not tourist_sites:
+        tourist_sites.extend([
+            {"ID": 1, "Name": "National Museum of Ethiopia", "Location": "Addis Ababa", 
+             "Category": "Cultural", "Entry Fee": "10", "Rating": 4, 
+             "Description": "Home to the famous Lucy fossil and other archaeological treasures",
+             "Opening Hours": "8:30-17:30", "Latitude": "9.0400", "Longitude": "38.7636",
+             "Image": "images/museum.jpg"},
+            {"ID": 2, "Name": "Blue Nile Falls", "Location": "Bahir Dar", 
+             "Category": "Natural", "Entry Fee": "5", "Rating": 5, 
+             "Description": "Spectacular waterfall known as 'Tis Abay' in Amharic",
+             "Opening Hours": "8:00-18:00", "Latitude": "11.4866", "Longitude": "37.5844",
+             "Image": "images/nile_falls.jpg"},
+            {"ID": 3, "Name": "Rock-Hewn Churches of Lalibela", "Location": "Lalibela", 
+             "Category": "Historic", "Entry Fee": "50", "Rating": 5, 
+             "Description": "11 medieval monolithic cave churches",
+             "Opening Hours": "8:00-17:00", "Latitude": "12.0317", "Longitude": "39.0417",
+             "Image": "images/lalibela_churches.jpg"}
+        ])
+
+    while True:
+        print("\n🌍 Integrated Tourism Management System 🌍")
+        print("1. Tourist Management")
+        print("2. Tourist Site Management")
+        print("3. Hotel Management")
+        print("4. Booking Management")
+        print("5. Visit Records & Payment")
+        print("6. Tourist Certification")
+        print("7. View Payment Records")
+        print("8. View Nearby Hotels for Sites")
+        print("9. Exit")
+        
+        main_choice = get_valid_input("Enter main menu choice (1-9): ", 
+                                    lambda x: x.isdigit() and 1 <= int(x) <= 9,
+                                    "Please enter a number between 1-9")
+        
+        if main_choice == "1":  # Tourist Management
+            while True:
+                print("\n👤 Tourist Management")
+                print("1. Register New Tourist")
+                print("2. View All Tourists")
+                print("3. Search Tourists")
+                print("4. Export Tourist Data")
+                print("5. Back to Main Menu")
+                
+                choice = get_valid_input("Enter choice (1-5): ",
+                                       lambda x: x.isdigit() and 1 <= int(x) <= 5,
+                                       "Please enter a number between 1-5")
+                
+                if choice == "1":
+                    print("\n➕ Register New Tourist")
+                    tourist = {
+                        "ID": len(tourists) + 1,
+                        "Name": get_valid_input("Name: ", lambda x: len(x) > 0, "Name cannot be empty"),
+                        "Nationality": get_valid_input("Nationality: "),
+                        "Passport No": get_valid_input("Passport Number: "),
+                        "Arrival Date": get_valid_input("Arrival Date (YYYY-MM-DD): ", validate_date),
+                        "Duration (days)": get_valid_input("Duration of Stay (days): ", 
+                                                          lambda x: x.isdigit() and int(x) > 0,
+                                                          "Duration must be a positive number"),
+                        "Contact": get_valid_input("Contact Number: "),
+                        "Email": get_valid_input("Email Address: "),
+                        "Image": get_valid_input("Profile Image Path: ")
+                    }
+                    tourists.append(tourist)
+                    print(f"\n✅ Tourist '{tourist['Name']}' registered successfully!")
+                
+                elif choice == "2":
+                    print("\n📋 All Tourists")
+                    display_as_table(tourists, ["ID", "Name", "Nationality", "Passport No", "Contact", "Image"])
+                
+                elif choice == "3":
+                    search_term = input("\n🔍 Search tourists (name/passport/nationality): ").lower()
+                    results = [
+                        t for t in tourists 
+                        if (search_term in t["Name"].lower() or 
+                            search_term in t["Passport No"].lower() or
+                            search_term in t["Nationality"].lower())
+                    ]
+                    print(f"\n🔎 Found {len(results)} matching tourists:")
+                    display_as_table(results, ["ID", "Name", "Nationality", "Passport No", "Image"])
+                
+                elif choice == "4":
+                    if not tourists:
+                        print("\n❌ No tourists to export!")
+                    else:
+                        filename = "tourists.csv"
+                        with open(filename, "w", newline="") as file:
+                            writer = csv.DictWriter(file, fieldnames=tourists[0].keys())
+                            writer.writeheader()
+                            writer.writerows(tourists)
+                        print(f"\n💾 Tourist data exported to '{filename}' successfully!")
+                
+                elif choice == "5":
+                    break
+        
+        elif main_choice == "2":  # Tourist Site Management
+            while True:
+                print("\n🏞️ Tourist Site Management")
+                print("1. Add New Tourist Site")
+                print("2. View All Sites")
+                print("3. Search Sites")
+                print("4. Export Site Data")
+                print("5. Back to Main Menu")
+                
+                choice = get_valid_input("Enter choice (1-5): ",
+                                       lambda x: x.isdigit() and 1 <= int(x) <= 5,
+                                       "Please enter a number between 1-5")
+                
+                if choice == "1":
+                    print("\n➕ Add New Tourist Site")
+                    site = {
+                        "ID": len(tourist_sites) + 1,
+                        "Name": get_valid_input("Site Name: ", lambda x: len(x) > 0, "Name cannot be empty"),
+                        "Location": get_valid_input("Location: "),
+                        "Category": get_valid_input("Category (Natural/Cultural/Historic): "),
+                        "Entry Fee": get_valid_input("Entry Fee: ",
+                                                   lambda x: x.replace('.','',1).isdigit(),
+                                                   "Entry fee must be a number"),
+                        "Rating": get_valid_input("Rating (1-5): ",
+                                                lambda x: x.isdigit() and 1 <= int(x) <= 5,
+                                                "Rating must be between 1-5"),
+                        "Description": get_valid_input("Brief Description: "),
+                        "Opening Hours": get_valid_input("Opening Hours (e.g., 8:00-18:00): "),
+                        "Latitude": get_valid_input("Latitude (-90 to 90): ",
+                                                  lambda x: validate_coordinate(x, "latitude"),
+                                                  "Invalid latitude value"),
+                        "Longitude": get_valid_input("Longitude (-180 to 180): ",
+                                                   lambda x: validate_coordinate(x, "longitude"),
+                                                   "Invalid longitude value"),
+                        "Image": get_valid_input("Site Image Path: ")
+                    }
+                    tourist_sites.append(site)
+                    print(f"\n✅ Site '{site['Name']}' added successfully!")
+                
+                elif choice == "2":
+                    print("\n🗺️ All Tourist Sites")
+                    display_as_table(tourist_sites, ["ID", "Name", "Location", "Category", "Entry Fee", "Image"])
+                
+                elif choice == "3":
+                    search_term = input("\n🔍 Search sites (name/location/category): ").lower()
+                    results = [
+                        site for site in tourist_sites 
+                        if (search_term in site["Name"].lower() or 
+                            search_term in site["Location"].lower() or
+                            search_term in site["Category"].lower())
+                    ]
+                    print(f"\n🔎 Found {len(results)} matching sites:")
+                    display_as_table(results, ["ID", "Name", "Location", "Category", "Entry Fee", "Image"])
+                
+                elif choice == "4":
+                    if not tourist_sites:
+                        print("\n❌ No sites to export!")
+                    else:
+                        filename = "tourist_sites.csv"
+                        with open(filename, "w", newline="") as file:
+                            writer = csv.DictWriter(file, fieldnames=tourist_sites[0].keys())
+                            writer.writeheader()
+                            writer.writerows(tourist_sites)
+                        print(f"\n💾 Site data exported to '{filename}' successfully!")
+                
+                elif choice == "5":
+                    break
+        
+        elif main_choice == "3":  # Hotel Management
+            while True:
+                print("\n🏨 Hotel Management")
+                print("1. Register New Hotel")
+                print("2. View All Hotels")
+                print("3. Search Hotels")
+                print("4. Export Hotel Data")
+                print("5. Back to Main Menu")
+                
+                choice = get_valid_input("Enter choice (1-5): ",
+                                       lambda x: x.isdigit() and 1 <= int(x) <= 5,
+                                       "Please enter a number between 1-5")
+                
+                if choice == "1":
+                    print("\n➕ Register New Hotel")
+                    hotel = {
+                        "ID": len(hotels) + 1,
+                        "Name": get_valid_input("Hotel Name: ", lambda x: len(x) > 0, "Name cannot be empty"),
+                        "Location": get_valid_input("Location: "),
+                        "Star Rating": get_valid_input("Star Rating (1-5): ",
+                                                     lambda x: x.isdigit() and 1 <= int(x) <= 5,
+                                                     "Rating must be between 1-5"),
+                        "Room Types": get_valid_input("Room Types (comma separated): "),
+                        "Base Price": get_valid_input("Base Price per night: ",
+                                                    lambda x: x.replace('.','',1).isdigit(),
+                                                    "Price must be a number"),
+                        "Contact": get_valid_input("Contact Number: "),
+                        "Email": get_valid_input("Email Address: "),
+                        "Amenities": get_valid_input("Amenities (comma separated): "),
+                        "Total Rooms": get_valid_input("Total Number of Rooms: ",
+                                                     lambda x: x.isdigit() and int(x) > 0,
+                                                     "Must be a positive number"),
+                        "Latitude": get_valid_input("Latitude (-90 to 90): ",
+                                                  lambda x: validate_coordinate(x, "latitude"),
+                                                  "Invalid latitude value"),
+                        "Longitude": get_valid_input("Longitude (-180 to 180): ",
+                                                   lambda x: validate_coordinate(x, "longitude"),
+                                                   "Invalid longitude value"),
+                        "Image": get_valid_input("Hotel Image Path: ")
+                    }
+                    hotels.append(hotel)
+                    print(f"\n✅ Hotel '{hotel['Name']}' registered successfully!")
+                
+                elif choice == "2":
+                    print("\n🏩 All Hotels")
+                    display_as_table(hotels, ["ID", "Name", "Location", "Star Rating", "Base Price", "Image"])
+                
+                elif choice == "3":
+                    search_term = input("\n🔍 Search hotels (name/location): ").lower()
+                    results = [
+                        h for h in hotels 
+                        if (search_term in h["Name"].lower() or 
+                            search_term in h["Location"].lower())
+                    ]
+                    print(f"\n🔎 Found {len(results)} matching hotels:")
+                    display_as_table(results, ["ID", "Name", "Location", "Star Rating", "Base Price", "Image"])
+                
+                elif choice == "4":
+                    if not hotels:
+                        print("\n❌ No hotels to export!")
+                    else:
+                        filename = "hotels.csv"
+                        with open(filename, "w", newline="") as file:
+                            writer = csv.DictWriter(file, fieldnames=hotels[0].keys())
+                            writer.writeheader()
+                            writer.writerows(hotels)
+                        print(f"\n💾 Hotel data exported to '{filename}' successfully!")
+                
+                elif choice == "5":
+                    break
+        
+        elif main_choice == "4":  # Booking Management
+            while True:
+                print("\n📅 Booking Management")
+                print("1. Create New Booking")
+                print("2. View All Bookings")
+                print("3. Search Bookings")
+                print("4. Cancel Booking")
+                print("5. Export Booking Data")
+                print("6. Back to Main Menu")
+                
+                choice = get_valid_input("Enter choice (1-6): ",
+                                       lambda x: x.isdigit() and 1 <= int(x) <= 6,
+                                       "Please enter a number between 1-6")
+                
+                if choice == "1":
+                    if not tourists or not hotels:
+                        print("\n❌ Need tourists and hotels registered first!")
+                        continue
+                    
+                    print("\n👤 Select Tourist:")
+                    selected_tourist = select_from_table(tourists, ["ID", "Name", "Nationality"], "Enter Tourist ID: ")
+                    
+                    print("\n🏨 Select Hotel:")
+                    selected_hotel = select_from_table(hotels, ["ID", "Name", "Location", "Base Price"], "Enter Hotel ID: ")
+                    
+                    check_in = get_valid_input("Check-in Date (YYYY-MM-DD): ", validate_date)
+                    check_out = get_valid_input("Check-out Date (YYYY-MM-DD): ", 
+                                              lambda x: validate_date(x) and x > check_in,
+                                              "Check-out must be after check-in")
+                    
+                    room_type = get_valid_input("Room Type (Single/Double/Suite): ",
+                                              lambda x: x.lower() in ["single", "double", "suite"],
+                                              "Please enter Single, Double, or Suite")
+                    guests = get_valid_input("Number of Guests: ",
+                                           lambda x: x.isdigit() and int(x) > 0,
+                                           "Must be a positive number")
+                    special_requests = input("Special Requests: ")
+                    
+                    stay_duration = calculate_stay_duration(check_in, check_out)
+                    total_price = calculate_total_price(selected_hotel["Base Price"], stay_duration, room_type)
+                    
+                    booking = {
+                        "Booking ID": len(bookings) + 1,
+                        "Tourist ID": selected_tourist["ID"],
+                        "Tourist Name": selected_tourist["Name"],
+                        "Passport No": selected_tourist["Passport No"],
+                        "Hotel ID": selected_hotel["ID"],
+                        "Hotel Name": selected_hotel["Name"],
+                        "Check-in": check_in,
+                        "Check-out": check_out,
+                        "Stay Duration": stay_duration,
+                        "Room Type": room_type,
+                        "Guests": guests,
+                        "Total Price": total_price,
+                        "Special Requests": special_requests,
+                        "Booking Date": datetime.now().strftime("%Y-%m-%d"),
+                        "Status": "Confirmed"
+                    }
+                    bookings.append(booking)
+                    print(f"\n✅ Booking confirmed for {selected_tourist['Name']} at {selected_hotel['Name']}")
+                    print(f"📅 Stay Duration: {stay_duration} days")
+                    print(f"💰 Total Price: ${total_price:.2f}")
+                
+                elif choice == "2":
+                    print("\n📋 All Bookings")
+                    display_as_table(bookings, ["Booking ID", "Tourist Name", "Hotel Name", "Check-in", "Check-out", "Total Price", "Status"])
+                
+                elif choice == "3":
+                    search_term = input("\n🔍 Search bookings (tourist name/hotel name): ").lower()
+                    results = [
+                        b for b in bookings 
+                        if (search_term in b["Tourist Name"].lower() or 
+                            search_term in b["Hotel Name"].lower())
+                    ]
+                    print(f"\n🔎 Found {len(results)} matching bookings:")
+                    display_as_table(results, ["Booking ID", "Tourist Name", "Hotel Name", "Check-in", "Total Price", "Status"])
+                
+                elif choice == "4":
+                    if not bookings:
+                        print("\n❌ No bookings to cancel!")
+                        continue
+                    
+                    print("\n📋 Active Bookings:")
+                    active_bookings = [b for b in bookings if b["Status"] == "Confirmed"]
+                    if not active_bookings:
+                        print("No active bookings found")
+                        continue
+                    
+                    display_as_table(active_bookings, ["Booking ID", "Tourist Name", "Hotel Name", "Check-in"])
+                    
+                    try:
+                        b_id = int(input("\nEnter Booking ID to cancel: "))
+                        booking = next((b for b in bookings if b["Booking ID"] == b_id and b["Status"] == "Confirmed"), None)
+                        if booking:
+                            booking["Status"] = "Cancelled"
+                            print(f"\n❌ Booking {b_id} for {booking['Tourist Name']} has been cancelled")
+                        else:
+                            print("❌ Invalid booking ID or already cancelled/completed")
+                    except ValueError:
+                        print("❌ Please enter a numeric ID.")
+                
+                elif choice == "5":
+                    if not bookings:
+                        print("\n❌ No bookings to export!")
+                    else:
+                        filename = "bookings.csv"
+                        with open(filename, "w", newline="") as file:
+                            writer = csv.DictWriter(file, fieldnames=bookings[0].keys())
+                            writer.writeheader()
+                            writer.writerows(bookings)
+                        print(f"\n💾 Booking data exported to '{filename}' successfully!")
+                
+                elif choice == "6":
+                    break
+        
+        elif main_choice == "5":  # Visit Records & Payment
+            while True:
+                print("\n📝 Visit Records & Payment Management")
+                print("1. Record New Visit with Payment")
+                print("2. View All Visits")
+                print("3. Export Visit Data")
+                print("4. Back to Main Menu")
+                
+                choice = get_valid_input("Enter choice (1-4): ",
+                                       lambda x: x.isdigit() and 1 <= int(x) <= 4,
+                                       "Please enter a number between 1-4")
+                
+                if choice == "1":
+                    if not tourists or not tourist_sites:
+                        print("\n❌ Need tourists and sites first!")
+                        continue
+                    
+                    print("\n👤 Select Tourist:")
+                    selected_tourist = select_from_table(tourists, ["ID", "Name", "Nationality"], "Enter Tourist ID: ")
+                    
+                    print("\n🏞️ Select Site:")
+                    selected_site = select_from_table(tourist_sites, ["ID", "Name", "Location", "Entry Fee"], "Enter Site ID: ")
+                    
+                    visit_date = get_valid_input("Visit Date (YYYY-MM-DD): ", validate_date)
+                    duration = get_valid_input("Duration (hours): ",
+                                             lambda x: x.isdigit() and int(x) > 0,
+                                             "Duration must be a positive number")
+                    
+                    # Process payment
+                    entry_fee = float(selected_site["Entry Fee"])
+                    payment = process_payment(selected_tourist["Name"], selected_site["Name"], entry_fee)
+                    payments.append(payment)
+                    
+                    visit = {
+                        "Visit ID": len(visits) + 1,
+                        "Tourist ID": selected_tourist["ID"],
+                        "Tourist Name": selected_tourist["Name"],
+                        "Passport No": selected_tourist["Passport No"],
+                        "Site ID": selected_site["ID"],
+                        "Site Name": selected_site["Name"],
+                        "Visit Date": visit_date,
+                        "Duration (hours)": duration,
+                        "Entry Fee Paid": entry_fee,
+                        "Payment Method": payment["Method"],
+                        "Payment Date": payment["Date"],
+                        "Guide Name": input("Guide Name (if any): "),
+                        "Notes": input("Additional Notes: ")
+                    }
+                    visits.append(visit)
+                    print(f"\n✅ Visit recorded: {visit['Tourist Name']} at {visit['Site Name']}")
+                
+                elif choice == "2":
+                    print("\n📊 All Visit Records")
+                    display_as_table(visits, ["Visit ID", "Tourist Name", "Site Name", "Visit Date", "Entry Fee Paid", "Payment Method"])
+                
+                elif choice == "3":
+                    if not visits:
+                        print("\n❌ No visits to export!")
+                    else:
+                        filename = "visits.csv"
+                        with open(filename, "w", newline="") as file:
+                            writer = csv.DictWriter(file, fieldnames=visits[0].keys())
+                            writer.writeheader()
+                            writer.writerows(visits)
+                        print(f"\n💾 Visit data exported to '{filename}' successfully!")
+                
+                elif choice == "4":
+                    break
+        
+        elif main_choice == "6":  # Tourist Certification
+            print("\n🏅 Tourist Certification")
+            if not tourists:
+                print("❌ No tourists registered yet!")
+                continue
+                
+            print("\n👤 Select Tourist:")
+            selected_tourist = select_from_table(tourists, ["ID", "Name", "Nationality"], "Enter Tourist ID: ")
+            
+            visit_count = count_visits(selected_tourist["ID"], visits)
+            certification = certify_tourist(selected_tourist, visit_count)
+            
+            print(f"\n📊 Certification Report for {selected_tourist['Name']}:")
+            print(f"Passport Number: {selected_tourist['Passport No']}")
+            print(f"Number of Sites Visited: {visit_count}")
+            print(f"Certification Level: {certification}")
+            
+            if visit_count > 0:
+                print("\n🏆 Visited Sites:")
+                visited_sites = [v for v in visits if v["Tourist ID"] == selected_tourist["ID"]]
+                display_as_table(visited_sites, ["Site Name", "Visit Date", "Entry Fee Paid"])
+        
+        elif main_choice == "7":  # Payment Records
+            print("\n💰 Payment Records")
+            if not payments:
+                print("No payment records available")
+                continue
+                
+            print("\n📋 All Payment Records")
+            display_as_table(payments, ["Tourist", "Site", "Amount", "Method", "Date"])
+            
+            total_revenue = sum(float(p["Amount"]) for p in payments)
+            print(f"\n💵 Total Revenue: ${total_revenue:.2f}")
+            
+            # Export option
+            export = input("\nExport payment records to CSV? (y/n): ").lower()
+            if export == "y":
+                filename = "payments.csv"
+                with open(filename, "w", newline="") as file:
+                    writer = csv.DictWriter(file, fieldnames=payments[0].keys())
+                    writer.writeheader()
+                    writer.writerows(payments)
+                print(f"\n💾 Payment data exported to '{filename}' successfully!")
+        
+        elif main_choice == "8":  # Nearby Hotels
+            print("\n🏨 Nearby Hotels for Tourist Sites")
+            if not tourist_sites or not hotels:
+                print("❌ Need tourist sites and hotels registered first!")
+                continue
+                
+            print("\n🏞️ Select Site:")
+            selected_site = select_from_table(tourist_sites, ["ID", "Name", "Location"], "Enter Site ID: ")
+            
+            max_distance = get_valid_input("\nMaximum distance in km (default 50): ",
+                                         lambda x: x == "" or (x.replace('.','',1).isdigit() and float(x) > 0),
+                                         "Distance must be a positive number")
+            max_distance = float(max_distance) if max_distance else 50.0
+            
+            nearby_hotels = find_nearby_hotels(selected_site, hotels, max_distance)
+            
+            if not nearby_hotels:
+                print(f"\n❌ No hotels found within {max_distance} km of {selected_site['Name']}")
+            else:
+                print(f"\n🏨 Hotels within {max_distance} km of {selected_site['Name']}:")
+                display_as_table(nearby_hotels, ["Name", "Location", "Star Rating", "Base Price", "Distance (km)"])
+        
+        elif main_choice == "9":
+            print("\n👋 Exiting the program. Goodbye!")
+            break
+
+if __name__ == "__main__":
+    main()
